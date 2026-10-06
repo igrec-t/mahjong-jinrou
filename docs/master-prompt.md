@@ -26,6 +26,7 @@ v1（初版マスタープロンプト）に、2026-10-06 の確認結果を反�
 | 13 | 秘密ルールの作用範囲 | 【追加】点数にのみ作用する。和了できるか・行動できるかの判定には影響させない | 6.3 |
 | 14 | ルール予想の選択肢 | 【追加】全ルールプールから出す。人狼に提示した3候補は使わない | 9.4 |
 | 15 | タイミングによる漏洩対策 | 【追加】秘密ルール選択フェーズは「全員の確認操作」と「最低待機時間」の両方がそろうまで終わらない | 10.5 |
+| 16 | 費用 | 【追加】すべての作業を無料の範囲で行う。Azure は App Service の **Free（F1）** プランを使う | 1.5 / 2.4 |
 
 ---
 
@@ -54,6 +55,12 @@ npm パッケージを追加するときは、追加理由を説明したうえ�
 ### 1.4 確認済みの環境（2026-10-06）
 Node.js v24.18.0、npm 11.16.0、git 2.55.0。az / gh / docker は未導入（導入しない）。GitHub と Azure の設定はブラウザ（GitHub Web、Azure Portal）で行う。
 
+### 1.5 無料範囲の制約【追加】
+- すべての作業を**無料の範囲**で行う。費用が発生するサービス・プラン・機能を使わない。
+- npm パッケージは OSS（無料）のものだけを使う。有料の SaaS（エラー監視・分析・認証サービスなど）は導入しない。
+- GitHub リポジトリ（igrec-t/mahjong-jinrou）は公開設定のため、GitHub Actions の標準ランナーは無料で使える。使うのは `ubuntu-latest` だけとする（Windows / macOS ランナーは非公開リポジトリだと消費が大きいため）。
+- 無料範囲で実現できない機能が必要になった場合は、勝手に有料サービスを使わず、「無料で実現できない理由 / 必要な費用 / 無料で実現できる代替案」を提示する。
+
 ---
 
 ## 2. 開発・デプロイ
@@ -71,9 +78,19 @@ VS Code → Claude Code で実装 → npm でローカルテスト → git diff 
 ### 2.3 シークレット管理
 Azure 認証情報、接続文字列、秘密鍵、API Key、パスワードをソースコードに書かない。GitHub Actions Secrets、Azure Application Settings、環境変数を使う。
 
-### 2.4 Azure【確定】
-- Azure App Service（Linux、Node LTS）を使う。Node のバージョンは App Service が対応しているものに合わせ、package.json の `engines` と CI の `node-version` をそろえる。
-- 必要な設定：Web Sockets ON、ARR Affinity ON、インスタンス1台（ルーム状態をメモリに持つため）、B1 以上を推奨。
+### 2.4 Azure【確定・無料範囲に変更】
+- Azure App Service（Linux、Node LTS）の **Free（F1）プラン**を使う。Node のバージョンは App Service が対応しているものに合わせ、package.json の `engines` と CI の `node-version` をそろえる。
+- 必要な設定：Web Sockets ON、インスタンス1台（ルーム状態をメモリに持つため）。
+- 作成時の注意：料金プランは初期値が有料プランのことがあるため、必ず「Free F1」を選ぶ。Application Insights は有効にしない。Cost Management で予算アラート（例：100円）を設定し、課金の発生に気づけるようにする。
+- F1 の制限と設計上の対応：
+
+| 制限 | 対応 |
+|---|---|
+| CPU 時間は1日60分まで | CPU プレイヤーの思考処理は軽量に保つ。大量の自動対局シミュレーションはローカルか GitHub Actions で行い、Azure 上では実行しない |
+| WebSocket の同時接続は5本まで | 人間4人のルームは同時に1つまで動かせる。CPU は接続を使わないので、1人プレイのルームは複数作れる。接続数が上限に達したときは、分かりやすいエラーを表示する |
+| 常時起動（Always On）ができない | 約20分アクセスがないと停止し、次のアクセスで再起動する。メモリ上のルームは消えるので、再接続時に「ルームが見つかりません」と表示する（MVP では許容） |
+| メモリ 1GB、ストレージ 1GB | 牌譜やログを Azure 上に大量に保存しない |
+
 - 認証は **Publish Profile 方式**。発行プロファイルを GitHub Secret `AZURE_WEBAPP_PUBLISH_PROFILE` に登録する（SCM の Basic 認証を有効にする必要がある）。
 - App Settings：`NODE_ENV=production`、`SHOW_SECRET_DEBUG_INFO=false`。
 - デプロイが失敗したときは、CLI 等を勝手に導入せず、Actions ログ、Secrets、Azure 設定、環境変数、Node のバージョン、ビルド、依存関係を調べる。
@@ -368,7 +385,8 @@ interface CpuDifficultyConfig {
 
 ### 12.7 思考時間とシミュレーション
 - AI の思考処理と演出用の待ち時間は分ける。`CPU_THINK_DELAY=0` でテスト用の高速モードにする。
-- 将来、`npm run simulate` で「CPU Lv1 × 4 で 1000 半荘」のような自動対局を行い、ルール別の期待値、平均裏得点、人狼発見率、人狼勝率、レベル別成績、ルールバランス、未発動率を分析する。
+- CPU の思考処理は軽量に保つ（Azure F1 の CPU 時間制限のため。2.4 参照）。
+- 将来、`npm run simulate` で（ローカルか GitHub Actions 上で）「CPU Lv1 × 4 で 1000 半荘」のような自動対局を行い、ルール別の期待値、平均裏得点、人狼発見率、人狼勝率、レベル別成績、ルールバランス、未発動率を分析する。
 
 ---
 
@@ -535,7 +553,7 @@ import の境界は ESLint `no-restricted-imports` で強制する。
 ## 21. MVP 開発順序【変更】
 
 1. プロジェクト確認（完了）
-2. Secret Rule Sandbox（19.1 の Case A〜G）
+2. Secret Rule Sandbox（19.1 の Case A〜G）（完了：PR #1）
 2.5. 【前倒し】GitHub Actions の CI（lint / typecheck / test / build。デプロイなし）
 3. GameState と PublicGameState / PlayerView の分離
 4. Room（4席、Human / CPU）
@@ -553,7 +571,7 @@ import の境界は ESLint `no-restricted-imports` で強制する。
 16. 半荘終了処理
 17. CPU Lv4〜Lv5 の拡張
 18. GitHub Actions のデプロイジョブ
-19. Azure へのデプロイ（App Service ＋ Publish Profile）
+19. Azure へのデプロイ（App Service Free F1 ＋ Publish Profile）
 20. CPU 自動シミュレーション
 
 ---
