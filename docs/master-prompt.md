@@ -233,7 +233,7 @@ if (winner.id === field.werewolfPlayerId) {
 MVP は「議論してください」という画面と「準備完了」ボタンだけ。将来はテキストチャット、ボイスチャット、スタンプ、牌譜閲覧へ拡張できる構造にする。
 
 ### 9.2 投票の非公開
-全員の投票が終わるまで、他人の投票内容を送らない（送るのは「誰が投票済みか」だけ）。
+全員の投票が終わるまで、他人の投票内容を送らない。【変更】進み具合は「何人済んだか」の人数だけを送り、誰が済ませたかは送らない（人狼は秘密ルール予想などを即答できるため、済ませた順番から推測されるのを防ぐ）。
 
 ### 9.3 人狼投票【確定】
 4人全員が投票する。人狼本人も投票する。**自分には投票できない**（自分以外の3人から選ぶ）。
@@ -284,6 +284,12 @@ GameState をそのままクライアントへ送ってはいけない。
 - 人狼本人のときだけ `self.werewolf = { secretRule, hiddenScore, candidates? }` を付ける。
 - Reveal 前の一般プレイヤーのデータには `werewolfPlayerId` / `secretRule` / `hiddenScore` / `specialRuleMatched` / `bonusHan` / `secretRuleFired` を **null としても含めない**（フィールド自体を作らない）。`exactOptionalPropertyTypes` を有効にして型でも防ぐ。
 - 「あなたは一般プレイヤーです」という表示は可。
+- 【追加】PlayerView は「全員共通の公開部分（`createPublicGameState`）＋ 本人用の `self`」で構成する。公開部分は閲覧者によって変わらず、人狼本人向けの秘密は `self.werewolf` にだけ入れる。
+- 【追加】秘密ルールの発動有無（`secretRuleFired`）は、人狼本人にも Reveal まで送らない。
+- 【追加】セッション ID は再接続用の資格情報なので、本人を含め PlayerView に入れない。
+- 【追加】秘密ルール選択中は、誰が確認を済ませたかも人数も送らない（最後まで残った人が人狼だと分かるため）。
+- 【追加】Reveal 後の記録は `revealedWerewolfId` / `revealedRuleId` / `revealedHiddenPoints` という名前にし、現在の場の秘密を表すキー名と区別する。
+- 【追加】秘密ルール予想の選択肢（全ルールプール）は PlayerView に入れず、静的な公開カタログとして別に渡す。
 
 ### 10.4 送信
 - ブラウザの DevTools で通信を見られても分からない構造にする。`display: none` で隠すだけでは不十分で、最初から送らない。
@@ -321,7 +327,7 @@ type PlayerState = { id: PlayerId; name: string; seat: Seat; score: number }
 ### 12.1 レベル
 - CPU ごとに個別のレベルを設定する（全員共通ではない）。
 - MVP は5段階：1 初心者 / 2 初級 / 3 中級（標準） / 4 上級 / 5 高難度。
-- レベルの定義は `CPU_DIFFICULTY_TABLE` の1か所にまとめ、`type CpuLevel = keyof typeof CPU_DIFFICULTY_TABLE` とする。zod スキーマも UI もここから作り、レベルの追加はエントリ1つで済むようにする。
+- 【変更】レベルの一覧は `src/shared/cpuLevel.ts` の `CPU_LEVELS` に置き、`type CpuLevel = (typeof CPU_LEVELS)[number]` とする（クライアントも参照するため shared に置く）。難易度パラメータは cpu/ の `CPU_DIFFICULTY_TABLE: Record<CpuLevel, CpuDifficultyConfig>` に置く。レベルを追加すると、テーブルへの追加漏れが型エラーになる。zod スキーマも UI も `CPU_LEVELS` から作る。
 
 ### 12.2 パラメータ中心の設計
 - Lv ごとに別のプログラムを書かない。「共通アルゴリズム＋レベル別パラメータ」で差を作る。
@@ -518,6 +524,7 @@ import の境界は ESLint `no-restricted-imports` で強制する。
 - CPU Sandbox：同じ公開状態に対して Lv1/3/5 が異なるパラメータで評価する
 
 ### 19.3 情報漏洩テスト（最重要）
+- 【追加・最重要】**区別不能性テスト**：秘密の中身（人狼・ルール・候補・裏得点・発動有無）だけが異なる複数の GameState について、一般プレイヤー（一般 CPU）の View が完全に一致することを確かめる。キー名を変えた漏洩や、新しく追加したフィールドからの漏洩も検出できる。
 - Reveal 前の各フェーズで、一般プレイヤーの PlayerView を `JSON.stringify` した結果に次が含まれないこと：
   - `werewolfPlayerId` / `secretRule` / `hiddenScore` / `specialRuleMatched` / `bonusHan` / `secretRuleFired`
   - 選ばれたルールの ID と名前、3候補の ID
@@ -554,8 +561,8 @@ import の境界は ESLint `no-restricted-imports` で強制する。
 
 1. プロジェクト確認（完了）
 2. Secret Rule Sandbox（19.1 の Case A〜G）（完了：PR #1）
-2.5. 【前倒し】GitHub Actions の CI（lint / typecheck / test / build。デプロイなし）
-3. GameState と PublicGameState / PlayerView の分離
+2.5. 【前倒し】GitHub Actions の CI（lint / typecheck / test / build。デプロイなし）（完了：PR #2）
+3. GameState と PublicGameState / PlayerView の分離（完了：PR #3）
 4. Room（4席、Human / CPU）
 5. CPU（追加・削除・個別レベル）
 6. Human / CPU 共通の GameAction
